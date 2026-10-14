@@ -1,9 +1,10 @@
 # Probe: GPU performance regression and diagnostics toolkit.
 #
-# Top-level build. The C++/CUDA workloads are only built when a CUDA compiler
-# is found, so the project still configures on machines without CUDA (for
-# example, ordinary CI runners). Pass -DPROBE_REQUIRE_CUDA=ON on a GPU host to
-# turn a missing toolkit into a hard error instead of a silent skip.
+# Top-level build. The CPU-side core library and its unit tests always build.
+# The CUDA executable is only built when a CUDA compiler is found, so the
+# project still configures on machines without CUDA (for example, ordinary CI
+# runners). Pass -DPROBE_REQUIRE_CUDA=ON on a GPU host to turn a missing
+# toolkit into a hard error instead of a silent skip.
 
 cmake_minimum_required(VERSION 3.25)  # 3.25+ provides the CUDA::nvtx3 target
 
@@ -31,22 +32,31 @@ include(CheckLanguage)
 check_language(CUDA)
 
 if(CMAKE_CUDA_COMPILER)
-  # Must be set before enable_language(CUDA), otherwise CMake picks the
-  # compiler's default architecture. Each entry produces native code (SASS)
-  # for that architecture plus PTX, so newer GPUs can JIT-compile the PTX.
-  #   75 = Turing (T4)   80 = Ampere (A100)   86 = Ampere (A10, RTX 30xx)
-  #   89 = Ada (L4, RTX 40xx)
-  # On a GPU host, -DCMAKE_CUDA_ARCHITECTURES=native builds only for the
-  # installed GPU and compiles faster.
+  # Architecture policy (see README, "What the binary contains"). Must be set
+  # before enable_language(CUDA), otherwise CMake picks the compiler default.
+  #
+  #   NN-real  -> native SASS for sm_NN only, no PTX
+  #   NN       -> SASS for sm_NN plus PTX for compute_NN
+  #
+  # Native SASS: sm_75 (T4), sm_80 (A100), sm_86 (RTX 30xx/A10), sm_89 (Ada),
+  # sm_90 (H100). One PTX image, compute_90, lets the driver JIT-compile for
+  # GPUs newer than 9.0. PTX only runs on its own or a newer architecture, so
+  # it is no fallback for anything older than 9.0.
+  #
+  # Override on a GPU host with -DCMAKE_CUDA_ARCHITECTURES=native.
   if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-    set(CMAKE_CUDA_ARCHITECTURES 75 80 86 89)
+    set(CMAKE_CUDA_ARCHITECTURES 75-real 80-real 86-real 89-real 90)
   endif()
   enable_language(CUDA)
   set(CMAKE_CUDA_STANDARD 17)
   set(CMAKE_CUDA_STANDARD_REQUIRED ON)
-  add_subdirectory(workloads)
+  set(PROBE_HAVE_CUDA ON)
 elseif(PROBE_REQUIRE_CUDA)
   message(FATAL_ERROR "PROBE_REQUIRE_CUDA=ON but no CUDA compiler was found.")
 else()
-  message(STATUS "No CUDA compiler found: skipping GPU workloads.")
+  message(STATUS "No CUDA compiler found: building CPU-side core and tests only.")
+  set(PROBE_HAVE_CUDA OFF)
 endif()
+
+enable_testing()
+add_subdirectory(workloads)
