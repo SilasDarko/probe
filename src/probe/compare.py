@@ -7,7 +7,7 @@ returns one of four verdicts:
   REGRESSION    slower by more than the threshold AND by more than the noise floor
   IMPROVEMENT   faster by more than the threshold AND by more than the noise floor
   INCONCLUSIVE  the change exceeds the threshold but not the noise floor, or
-                there are too few samples to estimate the noise
+                there are too few samples for the chosen statistic
   PASS          everything else: no change beyond noise, or a real change that
                 is within the threshold
 
@@ -49,8 +49,16 @@ from probe.stats import as_durations, mad
 NOISE_Z = 3.0
 # For normally distributed data, sigma = 1.4826 * MAD.
 MAD_TO_SIGMA = 1.4826
-# Below this many samples on either side, MAD is too unstable to trust.
-MIN_SAMPLES = 10
+# Minimum samples on EACH side before a statistic is trusted; fewer gives
+# INCONCLUSIVE. See docs/regression-model.md for the derivation.
+#   p95:  a distribution-free 95% confidence interval for the 95th percentile
+#         only ends at an observed sample once n >= 72; below that, p95 is
+#         essentially the slowest one or two iterations. 100 leaves about five
+#         observations above the estimate.
+#   p50, mean: the binding constraint is the MAD-based noise floor, whose sigma
+#         estimate is uncertain by about 1.17 / sqrt(n): 37% at n = 10, 26% at
+#         n = 20. 20 is also probe-workloads' default iteration count.
+MIN_SAMPLES = {"mean": 20, "p50": 20, "p95": 100}
 # CUDA events resolve time to about 0.5 microseconds (CUDA Runtime API docs,
 # cudaEventElapsedTime); differences below that are not measurable.
 TIMER_RESOLUTION_MS = 0.0005
@@ -136,14 +144,15 @@ def decide(
     threshold_pct: float,
     n_baseline: int,
     n_current: int,
+    min_samples: int,
 ) -> tuple[Verdict, str]:
     """The decision rule itself, separated from the statistics so it can be
     tested exactly. "Exceeds" is strict: a change equal to the threshold, or
     equal to the noise floor, does not count."""
     if threshold_pct < 0:
         raise ValueError("threshold must be non-negative")
-    if min(n_baseline, n_current) < MIN_SAMPLES:
-        return Verdict.INCONCLUSIVE, f"fewer than {MIN_SAMPLES} samples on one side"
+    if min(n_baseline, n_current) < min_samples:
+        return Verdict.INCONCLUSIVE, f"fewer than {min_samples} samples on one side"
 
     above_threshold = abs(percent) > threshold_pct
     above_noise = abs(delta) > floor
@@ -167,7 +176,9 @@ def compare_series(
     delta = c - b
     percent = percent_change(b, c)
     floor = noise_floor(baseline, current, stat)
-    verdict, reason = decide(delta, percent, floor, threshold_pct, len(baseline), len(current))
+    verdict, reason = decide(
+        delta, percent, floor, threshold_pct, len(baseline), len(current), MIN_SAMPLES[stat]
+    )
     return MetricComparison(
         metric=metric,
         stat=stat,

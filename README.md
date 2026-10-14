@@ -183,7 +183,7 @@ A different git commit is not a mismatch; comparing commits is the point.
 noise_floor = max(3 * sqrt(se_b^2 + se_c^2), 0.0005 ms)
 se          = c(stat) * 1.4826 * MAD / sqrt(n)        c(p50) = 1.2533, c(p95) = 2.113, c(mean) = 1
 
-fewer than 10 samples on either side      -> INCONCLUSIVE
+fewer than min(stat) samples on a side    -> INCONCLUSIVE   min: p50 20, mean 20, p95 100
 |delta| <= noise_floor, |percent| >  T     -> INCONCLUSIVE
 |delta| <= noise_floor, |percent| <= T     -> PASS
 |delta| >  noise_floor, |percent| <= T     -> PASS

@@ -27,55 +27,69 @@ SPREAD_10 = [10.0, 11.0, 9.0, 10.0, 12.0, 8.0, 10.0, 10.0, 11.0, 9.0]
 
 
 def test_regression_needs_threshold_and_noise():
-    assert decide(0.3, 15.0, 0.1, 10.0, 20, 20)[0] is Verdict.REGRESSION
+    assert decide(0.3, 15.0, 0.1, 10.0, 20, 20, 20)[0] is Verdict.REGRESSION
 
 
 def test_improvement_is_symmetric():
-    assert decide(-0.3, -15.0, 0.1, 10.0, 20, 20)[0] is Verdict.IMPROVEMENT
+    assert decide(-0.3, -15.0, 0.1, 10.0, 20, 20, 20)[0] is Verdict.IMPROVEMENT
 
 
 def test_change_equal_to_threshold_is_not_a_regression():
     # "exceeds" is strict
-    assert decide(0.3, 10.0, 0.1, 10.0, 20, 20)[0] is Verdict.PASS
-    assert decide(0.3, 10.000001, 0.1, 10.0, 20, 20)[0] is Verdict.REGRESSION
-    assert decide(-0.3, -10.0, 0.1, 10.0, 20, 20)[0] is Verdict.PASS
+    assert decide(0.3, 10.0, 0.1, 10.0, 20, 20, 20)[0] is Verdict.PASS
+    assert decide(0.3, 10.000001, 0.1, 10.0, 20, 20, 20)[0] is Verdict.REGRESSION
+    assert decide(-0.3, -10.0, 0.1, 10.0, 20, 20, 20)[0] is Verdict.PASS
 
 
 def test_change_equal_to_noise_floor_counts_as_noise():
-    assert decide(0.1, 20.0, 0.1, 10.0, 20, 20)[0] is Verdict.INCONCLUSIVE
-    assert decide(0.1000001, 20.0, 0.1, 10.0, 20, 20)[0] is Verdict.REGRESSION
+    assert decide(0.1, 20.0, 0.1, 10.0, 20, 20, 20)[0] is Verdict.INCONCLUSIVE
+    assert decide(0.1000001, 20.0, 0.1, 10.0, 20, 20, 20)[0] is Verdict.REGRESSION
 
 
 def test_above_threshold_but_within_noise_is_inconclusive():
-    verdict, reason = decide(0.05, 15.0, 0.1, 10.0, 20, 20)
+    verdict, reason = decide(0.05, 15.0, 0.1, 10.0, 20, 20, 20)
     assert verdict is Verdict.INCONCLUSIVE
     assert "noise floor" in reason
-    assert decide(-0.05, -15.0, 0.1, 10.0, 20, 20)[0] is Verdict.INCONCLUSIVE
+    assert decide(-0.05, -15.0, 0.1, 10.0, 20, 20, 20)[0] is Verdict.INCONCLUSIVE
 
 
 def test_real_but_small_change_passes():
-    verdict, reason = decide(0.3, 4.0, 0.1, 10.0, 20, 20)
+    verdict, reason = decide(0.3, 4.0, 0.1, 10.0, 20, 20, 20)
     assert verdict is Verdict.PASS
     assert "within the threshold" in reason
 
 
 def test_no_change_passes():
-    assert decide(0.0, 0.0, 0.1, 10.0, 20, 20)[0] is Verdict.PASS
+    assert decide(0.0, 0.0, 0.1, 10.0, 20, 20, 20)[0] is Verdict.PASS
 
 
 def test_too_few_samples_is_inconclusive_even_for_huge_changes():
-    assert decide(5.0, 500.0, 0.1, 10.0, MIN_SAMPLES - 1, 20)[0] is Verdict.INCONCLUSIVE
-    assert decide(5.0, 500.0, 0.1, 10.0, 20, MIN_SAMPLES - 1)[0] is Verdict.INCONCLUSIVE
-    assert decide(5.0, 500.0, 0.1, 10.0, MIN_SAMPLES, MIN_SAMPLES)[0] is Verdict.REGRESSION
+    assert decide(5.0, 500.0, 0.1, 10.0, 19, 20, 20)[0] is Verdict.INCONCLUSIVE
+    assert decide(5.0, 500.0, 0.1, 10.0, 20, 19, 20)[0] is Verdict.INCONCLUSIVE
+    assert decide(5.0, 500.0, 0.1, 10.0, 20, 20, 20)[0] is Verdict.REGRESSION
+
+
+def test_minimum_samples_per_statistic():
+    assert MIN_SAMPLES == {"mean": 20, "p50": 20, "p95": 100}
+    base = jitter(2.0, 0.01, 100)
+    slower = [t * 1.5 for t in base]  # +50%: unmistakable if there are enough samples
+    for stat, needed in MIN_SAMPLES.items():
+        short = compare_series("x", base[: needed - 1], slower[: needed - 1], stat, 10.0)
+        enough = compare_series("x", base[:needed], slower[:needed], stat, 10.0)
+        assert short.verdict is Verdict.INCONCLUSIVE, stat
+        assert f"fewer than {needed} samples" in short.reason
+        assert enough.verdict is Verdict.REGRESSION, stat
+    # 20 samples are enough for the default p50 but not for p95.
+    assert compare_series("x", base[:20], slower[:20], "p95", 10.0).verdict is Verdict.INCONCLUSIVE
 
 
 def test_zero_threshold_flags_any_change_beyond_noise():
-    assert decide(0.3, 0.5, 0.1, 0.0, 20, 20)[0] is Verdict.REGRESSION
+    assert decide(0.3, 0.5, 0.1, 0.0, 20, 20, 20)[0] is Verdict.REGRESSION
 
 
 def test_negative_threshold_is_rejected():
     with pytest.raises(ValueError):
-        decide(0.3, 15.0, 0.1, -1.0, 20, 20)
+        decide(0.3, 15.0, 0.1, -1.0, 20, 20, 20)
 
 
 # --- the noise floor -----------------------------------------------------------------
@@ -116,12 +130,15 @@ def test_noise_floor_ignores_a_single_outlier():
 
 
 def test_three_standard_errors_are_required():
-    # floor for SPREAD_10 vs a shifted copy is 2.493 (= NOISE_Z standard errors)
+    # 20 samples, median 10, MAD 1: se = 1.2533 * 1.4826 / sqrt(20) = 0.4155 per
+    # side, combined 0.5876, so the floor (NOISE_Z = 3 standard errors) is 1.763.
     assert NOISE_Z == 3.0
-    within = compare_series("kernel", SPREAD_10, [x + 2.0 for x in SPREAD_10], "p50", 10.0)
-    beyond = compare_series("kernel", SPREAD_10, [x + 3.0 for x in SPREAD_10], "p50", 10.0)
-    assert within.verdict is Verdict.INCONCLUSIVE  # +20%, but only ~2.4 standard errors
-    assert beyond.verdict is Verdict.REGRESSION  # +30%, ~3.6 standard errors
+    base = SPREAD_10 * 2
+    assert noise_floor(base, base, "p50") == pytest.approx(1.763, abs=1e-3)
+    within = compare_series("kernel", base, [x + 1.5 for x in base], "p50", 10.0)
+    beyond = compare_series("kernel", base, [x + 2.0 for x in base], "p50", 10.0)
+    assert within.verdict is Verdict.INCONCLUSIVE  # +15%, but only ~2.6 standard errors
+    assert beyond.verdict is Verdict.REGRESSION  # +20%, ~3.4 standard errors
 
 
 # --- whole-series comparisons -------------------------------------------------------------

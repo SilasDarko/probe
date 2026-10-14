@@ -26,12 +26,31 @@ noise_floor = max(3 * sqrt(se_b^2 + se_c^2), 0.0005 ms)
 - **`sqrt(se_b^2 + se_c^2)`** is the standard error of the difference of two independent statistics.
 - **3 standard errors.** If nothing changed and the normal approximation holds, the difference exceeds 3 standard errors about 0.3% of the time. With five metrics compared per run, that keeps false alarms rare. Two standard errors (about 5% each) would flag noise in CI regularly.
 - **0.0005 ms** is the resolution of CUDA event timing (about 0.5 µs, per the CUDA Runtime documentation for `cudaEventElapsedTime`). Differences below it are not measurable, even when every sample is identical and MAD is zero.
-- **At least 10 samples on each side.** Below that, the MAD itself is too unstable to support the floor, so the verdict is INCONCLUSIVE.
+- **A minimum number of samples per statistic, on each side.** Below the minimum the verdict is INCONCLUSIVE; see the next section.
+
+## Minimum samples per statistic
+
+| Statistic | Minimum | Binding reason |
+|---|---|---|
+| p50 | 20 | stability of the MAD-based noise floor |
+| mean | 20 | same |
+| p95 | 100 | the estimate itself is unreliable with fewer |
+
+**Why a high percentile needs far more data than the median.** The median is decided by the middle of the sample, where observations are densest. Half the data lies on each side of it, so every iteration helps pin it down. The 95th percentile is decided by the sparse upper tail: with n samples, only about `0.05 * n` of them lie above it. With 20 samples that is a single iteration, so "p95" is really "the second-slowest iteration", and one unlucky context switch moves it.
+
+This can be made precise without assuming any distribution. A 95% confidence interval for the q-quantile can be built from the sorted samples. Its upper end is an observed sample only if `1 - q^n >= 0.975`, that is, `n >= ln(0.025) / ln(q)`:
+
+- median (q = 0.5): n >= 6
+- p95 (q = 0.95): n >= 72
+
+With fewer than 72 samples, the data cannot even bound p95 from above. 100 leaves about five observations above the estimate. The normal-model standard error points the same way: the factor `c` is 2.113 for p95 against 1.2533 for the median, so p95 needs `(2.113 / 1.2533)^2`, about 2.8 times as many samples, for the same precision.
+
+For the median and the mean, the estimate is fine at much smaller n. The weaker link is the noise floor, which needs sigma, estimated from MAD. For normal data a MAD-based sigma has a relative standard error of about `1.17 / sqrt(n)`: about 37% at n = 10 and 26% at n = 20. 20 keeps that uncertainty moderate, and it is probe-workloads' default iteration count. Comparing p95 therefore requires `--iters 100` or more.
 
 ## Verdicts
 
 ```
-fewer than 10 samples on either side            -> INCONCLUSIVE
+fewer than min(stat) samples on either side    -> INCONCLUSIVE   (p50 20, mean 20, p95 100)
 |delta| <= floor  and  |percent| >  T           -> INCONCLUSIVE   matters, but could be chance
 |delta| <= floor  and  |percent| <= T           -> PASS           no evidence of change
 |delta| >  floor  and  |percent| <= T           -> PASS           real, but too small to matter
