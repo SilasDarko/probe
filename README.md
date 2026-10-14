@@ -1,14 +1,26 @@
 # Probe
 
-A GPU performance regression and diagnostics toolkit for CUDA workloads.
+A C++/CUDA toolkit for correctness-gated GPU benchmarking, reproducible
+baselines, and noise-aware performance regression analysis.
 
-Author: Silas Offei Darko
 
-> Status: early development. The benchmark harness, two workloads (`vector_add`,
-> `reduction`), and the baseline and regression-comparison CLI are in place.
-> The CUDA code compiles, but no GPU code path has yet been executed on NVIDIA
-> hardware; see [BENCHMARKS.md](BENCHMARKS.md). The procedure that will validate
-> it is in [docs/gpu-validation.md](docs/gpu-validation.md).
+> **Status:** Core implementation is complete and hardware validation is in
+> progress. Probe currently includes `vector_add` and `reduction` CUDA workloads,
+> CUDA-event and host timing, CPU-reference correctness checks, reproducible
+> baselines, and noise-aware regression comparison. The CUDA code has been
+> compiled across supported architectures; real NVIDIA GPU validation is the
+> remaining validation stage. See [BENCHMARKS.md](BENCHMARKS.md) and
+> [docs/gpu-validation.md](docs/gpu-validation.md).
+
+
+## Highlights
+
+- C++/CUDA benchmark harness with per-phase H2D, kernel, D2H, and total timing
+- Correctness gating against deterministic CPU references before accepting results
+- Reproducible baseline storage with environment and build compatibility checks
+- Noise-aware PASS / REGRESSION / IMPROVEMENT / INCONCLUSIVE decisions
+- Native CUDA builds for Turing, Ampere, Ada, and Hopper with PTX fallback
+- Python CLI for running workloads, saving baselines, and comparing revisions
 
 ## Build
 
