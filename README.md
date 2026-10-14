@@ -180,18 +180,22 @@ A different git commit is not a mismatch; comparing commits is the point.
 **Decision rule.** The decision is made per metric and statistic. The gated metric defaults to `gpu_total` and the statistic to `p50`; use `--metric kernel`, `--stat p95`, and so on to change them. `delta = current - baseline`, and `percent = 100 * delta / baseline`. Then:
 
 ```
-noise_floor = max(3 * sqrt(se_b^2 + se_c^2), 0.0005 ms)
-se          = c(stat) * 1.4826 * MAD / sqrt(n)        c(p50) = 1.2533, c(p95) = 2.113, c(mean) = 1
+noise_floor    = 3 * sqrt(se_b^2 + se_c^2)              estimated from the samples
+se             = c(stat) * 1.4826 * MAD / sqrt(n)      c(p50) = 1.2533, c(p95) = 2.113, c(mean) = 1
+min_detectable = max(noise_floor, clock_resolution)    0.0005 ms for CUDA-event metrics,
+                                                       1 ns (nominal) for host end-to-end
 
-fewer than min(stat) samples on a side    -> INCONCLUSIVE   min: p50 20, mean 20, p95 100
-|delta| <= noise_floor, |percent| >  T     -> INCONCLUSIVE
-|delta| <= noise_floor, |percent| <= T     -> PASS
-|delta| >  noise_floor, |percent| <= T     -> PASS
-|delta| >  noise_floor, percent   >  T     -> REGRESSION
-|delta| >  noise_floor, percent   < -T     -> IMPROVEMENT
+fewer than min(stat) samples on a side       -> INCONCLUSIVE   min: p50 20, mean 20, p95 100
+|delta| <= min_detectable, |percent| >  T     -> INCONCLUSIVE
+|delta| <= min_detectable, |percent| <= T     -> PASS
+|delta| >  min_detectable, |percent| <= T     -> PASS
+|delta| >  min_detectable, percent   >  T     -> REGRESSION
+|delta| >  min_detectable, percent   < -T     -> IMPROVEMENT
 ```
 
-`T` is `--fail-if-regression`, or 5% for an informational verdict when that option is not given. "Exceeds" is strict throughout. The reasoning behind the rule is in [docs/regression-model.md](docs/regression-model.md).
+`T` is `--fail-if-regression`, or 5% for an informational verdict when that option is not given. "Exceeds" is strict throughout.
+
+The noise floor is the only estimate of execution noise, and it comes from the observed samples. Clock resolution is a property of the timer, not of the workload. It matters only when the samples show almost no spread: below it, a difference cannot be measured at all. The reasoning behind the rule is in [docs/regression-model.md](docs/regression-model.md).
 
 **Exit codes of `probe`:**
 

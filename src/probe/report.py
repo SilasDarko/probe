@@ -81,7 +81,8 @@ def comparison_table(rows: list[MetricComparison], gated_metric: str) -> str:
     stat = rows[0].stat if rows else "p50"
     header = (
         f"  {'metric':<16} {'base ' + stat:>12} {'cur ' + stat:>12} {'delta':>13} "
-        f"{'change':>9} {'base p95':>12} {'cur p95':>12} {'noise floor':>12}  verdict"
+        f"{'change':>9} {'base p95':>12} {'cur p95':>12} {'noise floor':>12} "
+        f"{'detectable':>12}  verdict"
     )
     lines = [header, "  " + "-" * (len(header) - 2)]
     for r in rows:
@@ -89,7 +90,11 @@ def comparison_table(rows: list[MetricComparison], gated_metric: str) -> str:
         lines.append(
             f"{marker} {label(r.metric):<16} {fmt_ms(r.baseline):>12} {fmt_ms(r.current):>12} "
             f"{fmt_delta(r.delta):>13} {fmt_pct(r.percent):>9} {fmt_ms(r.baseline_p95):>12} "
-            f"{fmt_ms(r.current_p95):>12} {fmt_ms(r.noise_floor):>12}  {r.verdict.value}"
+            f"{fmt_ms(r.current_p95):>12} {fmt_ms(r.noise_floor):>12} "
+            f"{fmt_ms(r.min_detectable):>12}  {r.verdict.value}"
         )
-    lines.append("  (* = gated metric)")
+    lines.append(
+        "  (* = gated metric; noise floor: estimated from the samples; detectable: the larger "
+        "of the noise floor and the clock's resolution)"
+    )
     return "\n".join(lines)

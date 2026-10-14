@@ -12,12 +12,13 @@ This is a judgment about cost, not statistics. A 1% change can be real and still
 
 A change counts as a regression only if it passes both tests.
 
-## The noise floor
+## The noise floor and the smallest detectable change
 
 ```
-sigma       = 1.4826 * MAD                    robust spread of one iteration
-se          = c(stat) * sigma / sqrt(n)       how much the statistic wobbles
-noise_floor = max(3 * sqrt(se_b^2 + se_c^2), 0.0005 ms)
+sigma          = 1.4826 * MAD                    robust spread of one iteration
+se             = c(stat) * sigma / sqrt(n)       how much the statistic wobbles
+noise_floor    = 3 * sqrt(se_b^2 + se_c^2)       estimated from the samples
+min_detectable = max(noise_floor, clock_resolution)
 ```
 
 - **MAD**, the median absolute deviation `median(|x - median(x)|)`, measures spread while ignoring a few extreme iterations: a context switch, a clock dip. The standard deviation would let one bad iteration inflate the floor and hide real regressions.
@@ -25,7 +26,7 @@ noise_floor = max(3 * sqrt(se_b^2 + se_c^2), 0.0005 ms)
 - **`c(stat) / sqrt(n)`** is the standard error of the statistic. For the mean, `c = 1`. For the q-quantile, asymptotic theory gives `c = sqrt(q(1-q)) / phi(z_q)` under a normal model: 1.2533 for the median and 2.113 for p95. Tail percentiles are noisier, so comparing p95 needs a larger change before Probe trusts it.
 - **`sqrt(se_b^2 + se_c^2)`** is the standard error of the difference of two independent statistics.
 - **3 standard errors.** If nothing changed and the normal approximation holds, the difference exceeds 3 standard errors about 0.3% of the time. With five metrics compared per run, that keeps false alarms rare. Two standard errors (about 5% each) would flag noise in CI regularly.
-- **0.0005 ms** is the resolution of CUDA event timing (about 0.5 µs, per the CUDA Runtime documentation for `cudaEventElapsedTime`). Differences below it are not measurable, even when every sample is identical and MAD is zero.
+- **Clock resolution is not noise.** The noise floor is the only estimate of execution noise, and it comes entirely from the observed samples. Clock resolution is a property of the timer: CUDA events resolve time to about 0.5 µs (CUDA Runtime documentation for `cudaEventElapsedTime`), and `steady_clock` has a nominal 1 ns tick on Linux. It sets a lower limit on what can be measured at all. It only decides a verdict when the samples show almost no spread, for example identical samples with MAD = 0. Each metric uses its own clock: 0.0005 ms for the GPU phases and `gpu_total`, 1 ns for `host_end_to_end`. The host clock's real precision is worse than its tick, but that imprecision shows up as spread in the samples and therefore in the noise floor.
 - **A minimum number of samples per statistic, on each side.** Below the minimum the verdict is INCONCLUSIVE; see the next section.
 
 ## Minimum samples per statistic
@@ -51,14 +52,14 @@ For the median and the mean, the estimate is fine at much smaller n. The weaker 
 
 ```
 fewer than min(stat) samples on either side    -> INCONCLUSIVE   (p50 20, mean 20, p95 100)
-|delta| <= floor  and  |percent| >  T           -> INCONCLUSIVE   matters, but could be chance
-|delta| <= floor  and  |percent| <= T           -> PASS           no evidence of change
-|delta| >  floor  and  |percent| <= T           -> PASS           real, but too small to matter
-|delta| >  floor  and  percent   >  T           -> REGRESSION
-|delta| >  floor  and  percent   < -T           -> IMPROVEMENT
+|delta| <= min_detectable and |percent| >  T    -> INCONCLUSIVE   matters, but could be chance
+|delta| <= min_detectable and |percent| <= T    -> PASS           no evidence of change
+|delta| >  min_detectable and |percent| <= T    -> PASS           real, but too small to matter
+|delta| >  min_detectable and percent   >  T    -> REGRESSION
+|delta| >  min_detectable and percent   < -T    -> IMPROVEMENT
 ```
 
-"Exceeds" is strict for both tests. A change exactly equal to the threshold, or exactly equal to the noise floor, does not count.
+"Exceeds" is strict for both tests. A change exactly equal to the threshold, or exactly equal to `min_detectable`, does not count. The verdict's reason says whether the noise floor or the clock resolution was the binding bound.
 
 INCONCLUSIVE exits with 0 unless `--fail-on-inconclusive` is given (then 8). Whether "we could not tell" should block a merge is a policy choice for the user, not a statistical one. The usual remedy is more iterations.
 

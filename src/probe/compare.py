@@ -4,9 +4,11 @@ For one metric (e.g. the kernel phase) and one statistic (p50 by default),
 Probe compares the baseline's samples with the current run's samples and
 returns one of four verdicts:
 
-  REGRESSION    slower by more than the threshold AND by more than the noise floor
-  IMPROVEMENT   faster by more than the threshold AND by more than the noise floor
-  INCONCLUSIVE  the change exceeds the threshold but not the noise floor, or
+  REGRESSION    slower by more than the threshold AND by more than the smallest
+                detectable change
+  IMPROVEMENT   faster by more than the threshold AND by more than the smallest
+                detectable change
+  INCONCLUSIVE  the change exceeds the threshold but is not detectable, or
                 there are too few samples for the chosen statistic
   PASS          everything else: no change beyond noise, or a real change that
                 is within the threshold
@@ -17,11 +19,21 @@ Two separate questions, two separate tests:
    This also absorbs run-to-run drift (clocks, temperature, other processes),
    which the samples of a single run cannot reveal.
 
-2. "Is the change bigger than chance?"    -> the noise floor:
+2. "Is the change bigger than chance?"    -> the smallest detectable change:
 
-       noise_floor = max(Z * sqrt(se_b^2 + se_c^2), TIMER_RESOLUTION_MS)
-       se          = factor(stat) * sigma / sqrt(n)
-       sigma       = MAD_TO_SIGMA * MAD
+       min_detectable = max(noise_floor, timer_resolution)
+       noise_floor    = Z * sqrt(se_b^2 + se_c^2)      estimated from the samples
+       se             = factor(stat) * sigma / sqrt(n)
+       sigma          = MAD_TO_SIGMA * MAD
+
+   Two different things, kept apart on purpose:
+
+   noise_floor       how much the statistic varies by chance, estimated from
+                     the observed samples. This is the only noise estimate.
+   timer_resolution  a property of the clock, not of the workload: changes
+                     smaller than it cannot be measured, however quiet the
+                     samples look (e.g. when every sample is identical and
+                     MAD = 0). It is not a noise estimate.
 
    se is the standard error of the statistic: how much the median (or p95,
    or mean) of n samples would wobble between repeated runs if nothing had
@@ -44,6 +56,7 @@ from statistics import NormalDist
 
 import numpy as np
 
+from probe.result_schema import HOST_END_TO_END
 from probe.stats import as_durations, mad
 
 NOISE_Z = 3.0
@@ -59,9 +72,14 @@ MAD_TO_SIGMA = 1.4826
 #         estimate is uncertain by about 1.17 / sqrt(n): 37% at n = 10, 26% at
 #         n = 20. 20 is also probe-workloads' default iteration count.
 MIN_SAMPLES = {"mean": 20, "p50": 20, "p95": 100}
-# CUDA events resolve time to about 0.5 microseconds (CUDA Runtime API docs,
-# cudaEventElapsedTime); differences below that are not measurable.
-TIMER_RESOLUTION_MS = 0.0005
+# Clock resolutions: approximate smallest measurable differences. These are
+# properties of the clocks, NOT estimates of execution noise.
+# CUDA events: "resolution of around 0.5 microseconds" (CUDA Runtime API,
+# cudaEventElapsedTime). Applies to every GPU phase and to gpu_total.
+EVENT_TIMER_RESOLUTION_MS = 0.0005
+# std::chrono::steady_clock: nominal 1 ns tick on Linux/libstdc++. The real
+# precision of a host measurement is worse; that shows up in the samples' MAD.
+HOST_CLOCK_RESOLUTION_MS = 0.000001
 # Used to classify changes when no --fail-if-regression threshold is given.
 DEFAULT_THRESHOLD_PCT = 5.0
 
@@ -85,7 +103,9 @@ class MetricComparison:
     percent: float  # 100 * delta / baseline; +/-inf if baseline is 0 and current is not
     baseline_p95: float
     current_p95: float
-    noise_floor: float  # ms
+    noise_floor: float  # ms, estimated from the samples (may be 0)
+    timer_resolution: float  # ms, property of the clock that measured this metric
+    min_detectable: float  # ms, max(noise_floor, timer_resolution)
     verdict: Verdict
     reason: str
 
@@ -118,7 +138,14 @@ def standard_error_factor(stat: str) -> float:
     return math.sqrt(q * (1.0 - q)) / normal.pdf(normal.inv_cdf(q))
 
 
+def timer_resolution_ms(metric: str) -> float:
+    """Resolution of the clock that measured `metric`."""
+    return HOST_CLOCK_RESOLUTION_MS if metric == HOST_END_TO_END else EVENT_TIMER_RESOLUTION_MS
+
+
 def noise_floor(baseline, current, stat: str) -> float:
+    """NOISE_Z standard errors of the difference between the two statistics,
+    estimated from the samples alone. Zero if neither side shows any spread."""
     factor = standard_error_factor(stat)
 
     def standard_error(samples) -> float:
@@ -126,7 +153,7 @@ def noise_floor(baseline, current, stat: str) -> float:
         return factor * sigma / math.sqrt(len(samples))
 
     combined = math.hypot(standard_error(baseline), standard_error(current))
-    return max(NOISE_Z * combined, TIMER_RESOLUTION_MS)
+    return NOISE_Z * combined
 
 
 def percent_change(baseline: float, current: float) -> float:
@@ -140,32 +167,37 @@ def percent_change(baseline: float, current: float) -> float:
 def decide(
     delta: float,
     percent: float,
-    floor: float,
+    noise: float,
+    resolution: float,
     threshold_pct: float,
     n_baseline: int,
     n_current: int,
     min_samples: int,
 ) -> tuple[Verdict, str]:
     """The decision rule itself, separated from the statistics so it can be
-    tested exactly. "Exceeds" is strict: a change equal to the threshold, or
-    equal to the noise floor, does not count."""
+    tested exactly. `noise` is the sample-derived noise floor, `resolution`
+    the clock's resolution; a change must exceed the larger of the two.
+    "Exceeds" is strict: a change equal to the threshold or to that bound
+    does not count."""
     if threshold_pct < 0:
         raise ValueError("threshold must be non-negative")
     if min(n_baseline, n_current) < min_samples:
         return Verdict.INCONCLUSIVE, f"fewer than {min_samples} samples on one side"
 
+    min_detectable = max(noise, resolution)
+    bound = "the noise floor" if noise >= resolution else "the timer resolution"
     above_threshold = abs(percent) > threshold_pct
-    above_noise = abs(delta) > floor
+    detectable = abs(delta) > min_detectable
 
-    if not above_noise:
+    if not detectable:
         if above_threshold:
-            return Verdict.INCONCLUSIVE, "change exceeds the threshold but not the noise floor"
-        return Verdict.PASS, "no change beyond the noise floor"
+            return Verdict.INCONCLUSIVE, f"change exceeds the threshold but not {bound}"
+        return Verdict.PASS, f"no change beyond {bound}"
     if not above_threshold:
         return Verdict.PASS, "measurable change, within the threshold"
     if delta > 0:
-        return Verdict.REGRESSION, "slower beyond both the threshold and the noise floor"
-    return Verdict.IMPROVEMENT, "faster beyond both the threshold and the noise floor"
+        return Verdict.REGRESSION, f"slower beyond both the threshold and {bound}"
+    return Verdict.IMPROVEMENT, f"faster beyond both the threshold and {bound}"
 
 
 def compare_series(
@@ -175,9 +207,17 @@ def compare_series(
     c = statistic(current, stat)
     delta = c - b
     percent = percent_change(b, c)
-    floor = noise_floor(baseline, current, stat)
+    noise = noise_floor(baseline, current, stat)
+    resolution = timer_resolution_ms(metric)
     verdict, reason = decide(
-        delta, percent, floor, threshold_pct, len(baseline), len(current), MIN_SAMPLES[stat]
+        delta,
+        percent,
+        noise,
+        resolution,
+        threshold_pct,
+        len(baseline),
+        len(current),
+        MIN_SAMPLES[stat],
     )
     return MetricComparison(
         metric=metric,
@@ -188,7 +228,9 @@ def compare_series(
         percent=percent,
         baseline_p95=statistic(baseline, "p95"),
         current_p95=statistic(current, "p95"),
-        noise_floor=floor,
+        noise_floor=noise,
+        timer_resolution=resolution,
+        min_detectable=max(noise, resolution),
         verdict=verdict,
         reason=reason,
     )

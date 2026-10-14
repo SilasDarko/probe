@@ -5,9 +5,10 @@ import math
 import pytest
 
 from probe.compare import (
+    EVENT_TIMER_RESOLUTION_MS,
+    HOST_CLOCK_RESOLUTION_MS,
     MIN_SAMPLES,
     NOISE_Z,
-    TIMER_RESOLUTION_MS,
     Verdict,
     compare_series,
     decide,
@@ -27,46 +28,46 @@ SPREAD_10 = [10.0, 11.0, 9.0, 10.0, 12.0, 8.0, 10.0, 10.0, 11.0, 9.0]
 
 
 def test_regression_needs_threshold_and_noise():
-    assert decide(0.3, 15.0, 0.1, 10.0, 20, 20, 20)[0] is Verdict.REGRESSION
+    assert decide(0.3, 15.0, 0.1, 0.0, 10.0, 20, 20, 20)[0] is Verdict.REGRESSION
 
 
 def test_improvement_is_symmetric():
-    assert decide(-0.3, -15.0, 0.1, 10.0, 20, 20, 20)[0] is Verdict.IMPROVEMENT
+    assert decide(-0.3, -15.0, 0.1, 0.0, 10.0, 20, 20, 20)[0] is Verdict.IMPROVEMENT
 
 
 def test_change_equal_to_threshold_is_not_a_regression():
     # "exceeds" is strict
-    assert decide(0.3, 10.0, 0.1, 10.0, 20, 20, 20)[0] is Verdict.PASS
-    assert decide(0.3, 10.000001, 0.1, 10.0, 20, 20, 20)[0] is Verdict.REGRESSION
-    assert decide(-0.3, -10.0, 0.1, 10.0, 20, 20, 20)[0] is Verdict.PASS
+    assert decide(0.3, 10.0, 0.1, 0.0, 10.0, 20, 20, 20)[0] is Verdict.PASS
+    assert decide(0.3, 10.000001, 0.1, 0.0, 10.0, 20, 20, 20)[0] is Verdict.REGRESSION
+    assert decide(-0.3, -10.0, 0.1, 0.0, 10.0, 20, 20, 20)[0] is Verdict.PASS
 
 
 def test_change_equal_to_noise_floor_counts_as_noise():
-    assert decide(0.1, 20.0, 0.1, 10.0, 20, 20, 20)[0] is Verdict.INCONCLUSIVE
-    assert decide(0.1000001, 20.0, 0.1, 10.0, 20, 20, 20)[0] is Verdict.REGRESSION
+    assert decide(0.1, 20.0, 0.1, 0.0, 10.0, 20, 20, 20)[0] is Verdict.INCONCLUSIVE
+    assert decide(0.1000001, 20.0, 0.1, 0.0, 10.0, 20, 20, 20)[0] is Verdict.REGRESSION
 
 
 def test_above_threshold_but_within_noise_is_inconclusive():
-    verdict, reason = decide(0.05, 15.0, 0.1, 10.0, 20, 20, 20)
+    verdict, reason = decide(0.05, 15.0, 0.1, 0.0, 10.0, 20, 20, 20)
     assert verdict is Verdict.INCONCLUSIVE
     assert "noise floor" in reason
-    assert decide(-0.05, -15.0, 0.1, 10.0, 20, 20, 20)[0] is Verdict.INCONCLUSIVE
+    assert decide(-0.05, -15.0, 0.1, 0.0, 10.0, 20, 20, 20)[0] is Verdict.INCONCLUSIVE
 
 
 def test_real_but_small_change_passes():
-    verdict, reason = decide(0.3, 4.0, 0.1, 10.0, 20, 20, 20)
+    verdict, reason = decide(0.3, 4.0, 0.1, 0.0, 10.0, 20, 20, 20)
     assert verdict is Verdict.PASS
     assert "within the threshold" in reason
 
 
 def test_no_change_passes():
-    assert decide(0.0, 0.0, 0.1, 10.0, 20, 20, 20)[0] is Verdict.PASS
+    assert decide(0.0, 0.0, 0.1, 0.0, 10.0, 20, 20, 20)[0] is Verdict.PASS
 
 
 def test_too_few_samples_is_inconclusive_even_for_huge_changes():
-    assert decide(5.0, 500.0, 0.1, 10.0, 19, 20, 20)[0] is Verdict.INCONCLUSIVE
-    assert decide(5.0, 500.0, 0.1, 10.0, 20, 19, 20)[0] is Verdict.INCONCLUSIVE
-    assert decide(5.0, 500.0, 0.1, 10.0, 20, 20, 20)[0] is Verdict.REGRESSION
+    assert decide(5.0, 500.0, 0.1, 0.0, 10.0, 19, 20, 20)[0] is Verdict.INCONCLUSIVE
+    assert decide(5.0, 500.0, 0.1, 0.0, 10.0, 20, 19, 20)[0] is Verdict.INCONCLUSIVE
+    assert decide(5.0, 500.0, 0.1, 0.0, 10.0, 20, 20, 20)[0] is Verdict.REGRESSION
 
 
 def test_minimum_samples_per_statistic():
@@ -84,12 +85,12 @@ def test_minimum_samples_per_statistic():
 
 
 def test_zero_threshold_flags_any_change_beyond_noise():
-    assert decide(0.3, 0.5, 0.1, 0.0, 20, 20, 20)[0] is Verdict.REGRESSION
+    assert decide(0.3, 0.5, 0.1, 0.0, 0.0, 20, 20, 20)[0] is Verdict.REGRESSION
 
 
 def test_negative_threshold_is_rejected():
     with pytest.raises(ValueError):
-        decide(0.3, 15.0, 0.1, -1.0, 20, 20, 20)
+        decide(0.3, 15.0, 0.1, 0.0, -1.0, 20, 20, 20)
 
 
 # --- the noise floor -----------------------------------------------------------------
@@ -116,10 +117,38 @@ def test_noise_floor_shrinks_with_more_samples():
     assert large == pytest.approx(small / 2)
 
 
-def test_noise_floor_never_below_timer_resolution():
+def test_noise_floor_is_purely_statistical():
+    # Identical samples: no observed spread, so no noise, even though no clock
+    # could resolve an arbitrarily small change.
     constant = [1.0] * 20
     assert mad(constant) == 0.0
-    assert noise_floor(constant, constant, "p50") == TIMER_RESOLUTION_MS
+    assert noise_floor(constant, constant, "p50") == 0.0
+
+
+def test_timer_resolution_is_separate_from_noise():
+    constant = [1.0] * 20
+    result = compare_series("kernel", constant, constant, "p50", 10.0)
+    assert result.noise_floor == 0.0
+    assert result.timer_resolution == EVENT_TIMER_RESOLUTION_MS
+    assert result.min_detectable == EVENT_TIMER_RESOLUTION_MS
+
+
+def test_resolution_bounds_detection_when_samples_are_quiet():
+    verdict, reason = decide(0.0003, 50.0, 0.0, 0.0005, 10.0, 20, 20, 20)
+    assert verdict is Verdict.INCONCLUSIVE
+    assert "timer resolution" in reason
+    verdict, reason = decide(0.0003, 50.0, 0.001, 0.0005, 10.0, 20, 20, 20)
+    assert "noise floor" in reason
+
+
+def test_each_metric_uses_its_own_clock_resolution():
+    base, cur = [1.0] * 20, [1.0001] * 20  # +0.1 microseconds, +0.01%
+    gpu = compare_series("gpu_total", base, cur, "p50", 0.005)
+    host = compare_series("host_end_to_end", base, cur, "p50", 0.005)
+    assert gpu.timer_resolution == EVENT_TIMER_RESOLUTION_MS
+    assert gpu.verdict is Verdict.INCONCLUSIVE  # below what CUDA events can resolve
+    assert host.timer_resolution == HOST_CLOCK_RESOLUTION_MS
+    assert host.verdict is Verdict.REGRESSION  # the host clock can resolve it
 
 
 def test_noise_floor_ignores_a_single_outlier():
@@ -186,6 +215,7 @@ def test_zero_baseline():
     # Below the event timer's resolution: not measurable either way.
     tiny = compare_series("kernel", zeros, [0.0001] * 20, "p50", 10.0)
     assert tiny.verdict is Verdict.INCONCLUSIVE
+    assert "timer resolution" in tiny.reason
 
 
 @pytest.mark.parametrize(
