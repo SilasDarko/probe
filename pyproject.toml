@@ -12,6 +12,9 @@ license = "MIT"
 authors = [{ name = "Silas Offei Darko" }]
 dependencies = ["numpy>=1.26"]
 
+[project.scripts]
+probe = "probe.cli:main"
+
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6"]
 
@@ -31,3 +34,7 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["probe"]
+known-local-folder = ["synthetic"]

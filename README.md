@@ -4,9 +4,10 @@ A GPU performance regression and diagnostics toolkit for CUDA workloads.
 
 Author: Silas Offei Darko
 
-> Status: early development. The build system, the shared benchmark harness and
-> two workloads (`vector_add`, `reduction`) are in place. The CUDA code compiles, but no GPU code path has
-> yet been executed on NVIDIA hardware; see [BENCHMARKS.md](BENCHMARKS.md).
+> Status: early development. The benchmark harness, two workloads (`vector_add`,
+> `reduction`), and the baseline and regression-comparison CLI are in place.
+> The CUDA code compiles, but no GPU code path has yet been executed on NVIDIA
+> hardware; see [BENCHMARKS.md](BENCHMARKS.md).
 
 ## Build
 
@@ -127,9 +128,7 @@ Each timing series is summarized as `count`, `min`, `max`, `mean`, `p50`, `p95` 
 
 The C++ and Python implementations are both tested against `tests/fixtures/stats_golden.txt`.
 
-### Exit codes
-
-The Python CLI relies on these:
+### probe-workloads exit codes
 
 | Code | Meaning |
 |---|---|
@@ -138,6 +137,73 @@ The Python CLI relies on these:
 | 2 | usage error |
 | 3 | no usable CUDA device |
 | 4 | completed, but the result is invalid (JSON still printed, with reasons) |
+
+## The `probe` CLI: baselines and regression comparison
+
+```sh
+pip install -e .
+
+probe run vector-add --size 10000000             # writes results/vector-add-<time>.json
+probe baseline save vector-add --name main --size 10000000   # runs, saves as 'main'
+# ... change the code, rebuild ...
+probe compare vector-add --baseline main --fail-if-regression 10
+
+probe baseline list
+probe baseline show main
+probe baseline delete main
+```
+
+**Workflow model.** Every command that needs a measurement runs the workload itself, unless it is given a result file explicitly. There is no hidden "last run".
+
+- `baseline save --from FILE` promotes an existing result file.
+- `compare --current FILE` compares an existing result file.
+- `compare` without `--current` re-runs the workload with the baseline's own recorded parameters (size, block size, warmup, iterations, seed), so both runs measure the same problem. Explicit options override those values, and the compatibility check then reports any mismatch.
+
+Every run records raw per-iteration samples and adds provenance: the git commit and dirty flag of the directory it was run from, a timestamp, the command line, and host OS/CPU details.
+
+**Storage.** Baselines are plain JSON in `<store>/baselines/<name>.json`. The store is `--store`, else `$PROBE_STORE`, else `./.probe`. A baseline wraps the complete result document, including raw samples. It is not gitignored, so baselines can be committed for CI.
+
+Probe refuses to save an invalid run. Every load re-validates the file: its structure, that the run was valid, and that every stored statistic matches what is recomputed from the stored raw samples. Hand-edited or corrupted files are rejected. This is a consistency check, not a cryptographic signature.
+
+**Compatibility.** Before comparing, Probe sorts every difference into one of three groups:
+
+| Group | Fields | Effect |
+|---|---|---|
+| fatal | workload, any workload parameter | refuses; cannot be overridden |
+| environment | GPU name, compute capability, build type | refuses unless `--allow-environment-mismatch`, then a prominent warning |
+| warning | CUDA runtime/driver, compiled architectures, compilers and flags, warmup/iterations/seed, host OS/CPU, Probe version | printed; comparison proceeds |
+
+A different git commit is not a mismatch; comparing commits is the point.
+
+**Decision rule.** The decision is made per metric and statistic. The gated metric defaults to `gpu_total` and the statistic to `p50`; use `--metric kernel`, `--stat p95`, and so on to change them. `delta = current - baseline`, and `percent = 100 * delta / baseline`. Then:
+
+```
+noise_floor = max(3 * sqrt(se_b^2 + se_c^2), 0.0005 ms)
+se          = c(stat) * 1.4826 * MAD / sqrt(n)        c(p50) = 1.2533, c(p95) = 2.113, c(mean) = 1
+
+fewer than 10 samples on either side      -> INCONCLUSIVE
+|delta| <= noise_floor, |percent| >  T     -> INCONCLUSIVE
+|delta| <= noise_floor, |percent| <= T     -> PASS
+|delta| >  noise_floor, |percent| <= T     -> PASS
+|delta| >  noise_floor, percent   >  T     -> REGRESSION
+|delta| >  noise_floor, percent   < -T     -> IMPROVEMENT
+```
+
+`T` is `--fail-if-regression`, or 5% for an informational verdict when that option is not given. "Exceeds" is strict throughout. The reasoning behind the rule is in [docs/regression-model.md](docs/regression-model.md).
+
+**Exit codes of `probe`:**
+
+| Code | Meaning |
+|---|---|
+| 0 | success; comparison did not fail the gate |
+| 1 | `--fail-if-regression` given and the gated metric is a REGRESSION |
+| 2 | usage error |
+| 3 | no usable CUDA device |
+| 4 | a run (or file) is an invalid run; never saved or compared |
+| 5 | runs are not comparable (fatal or un-overridden environment mismatch) |
+| 6 | baseline or result file missing, malformed, or inconsistent |
+| 7 | workload failed: binary missing, CUDA error, unusable output |
+| 8 | `--fail-on-inconclusive` given and the gated metric is INCONCLUSIVE |
 
 ## Test
 
