@@ -229,6 +229,35 @@ def section_vector_add(run: Run) -> list[str]:
     return lines
 
 
+def section_correctness_summary(run: Run) -> list[str]:
+    """Both workloads in one table: did each size pass, and by what margin."""
+    lines = ["## Correctness summary", ""]
+    rows = []
+    for name in [*run.names("vector_add/"), *run.names("reduction/")]:
+        workload, case = name.split("/", 1)
+        size = case.rsplit("n", 1)[1]
+        doc, step = run.doc(name), run.step(name)
+        if doc is None:
+            rows.append((workload, size, f"NO ({outcome(step)})", "-", "-", "-"))
+            continue
+        v = doc["validation"]
+        passed = "yes" if step["exit_code"] == 0 and doc["valid"] else f"NO ({outcome(step)})"
+        err, atol, rtol = v["max_abs_error"], v["atol"], v["rtol"]
+        if atol == 0 and rtol == 0:
+            allowed = "0 (exact)"
+            ratio = "exact match" if err == 0 else "MISMATCH"
+        else:
+            allowed = f"{atol:.2e}" if rtol == 0 else f"atol {atol:.2e}, rtol {rtol:.2e}"
+            ratio = sig2(err / atol) if rtol == 0 and atol else "-"
+        rows.append((workload, size, passed, f"{err:.2e}", allowed, ratio))
+    if not rows:
+        return [*lines, "not run"]
+    lines += table(
+        ["workload", "size", "passed", "observed error", "allowed error", "observed / bound"], rows
+    )
+    return lines
+
+
 def section_sanitizer(run: Run) -> list[str]:
     lines = ["## compute-sanitizer", ""]
     rows = []
@@ -314,7 +343,17 @@ def section_timing(run: Run) -> list[str]:
             for m in [*phases, GPU_TOTAL, HOST_END_TO_END]
         ]
         lines += table(["metric", "p50 ms", "robust sigma ms", "min ms", "max ms"], rows)
-        lines += ["", f"n = {len(total)} iterations."]
+        lines += ["", f"n = {len(total)} iterations.", ""]
+        lines += [f"Timing accounting ({' + '.join(phases)} versus GPU total), per iteration:", ""]
+        lines += table(
+            ["", "sum of phases ms", "GPU total ms", "difference us"],
+            [
+                ("median", ms(float(np.median(parts))), ms(float(np.median(total))),
+                 us(float(np.median(gap)))),
+                ("min", ms(float(parts.min())), ms(float(total.min())), us(float(gap.min()))),
+                ("max", ms(float(parts.max())), ms(float(total.max())), us(float(gap.max()))),
+            ],
+        )  # fmt: skip
         lines += [
             "",
             "Sum of phases minus GPU total (us): "
@@ -483,6 +522,7 @@ def report(directory: Path) -> str:
         section_steps,
         section_environment,
         section_architecture,
+        section_correctness_summary,
         section_vector_add,
         section_sanitizer,
         section_reduction,

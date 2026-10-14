@@ -110,6 +110,16 @@ def test_vector_add_and_sanitizer_rows(report):
     assert "| memcheck-vector_add-n33 | exit 0 | ERROR SUMMARY: 0 errors |" in report
 
 
+def test_correctness_summary(report):
+    assert "| vector_add | 33 | yes | 0.00e+00 | 0 (exact) | exact match |" in report
+    assert "| vector_add | 1 | NO (exit 3) | - | - | - |" in report
+    assert "| reduction | 1009 | yes | 1.00e-04 | 1.00e-03 | 0.1 |" in report
+
+
+def test_timing_accounting_table(report):
+    assert "| median | 2.400 | 2.400 | 0.0 |" in report
+
+
 def test_reduction_error_versus_bound(report):
     # error / bound = 0.1; 0.5 - 1e-4 > 1e-3, so a dropped element is detectable
     assert "| prime | 1009 | exit 0 | True | 2 | 1.00e-04 | 1.00e-03 | 0.1 | yes |" in report
