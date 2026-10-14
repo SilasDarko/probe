@@ -14,9 +14,14 @@ A baseline file wraps one complete result document, including raw samples:
       "result": { ...probe.run document... }
     }
 
-Every load re-validates the file: structure, validity, and that the stored
-statistics follow from the stored raw samples. That catches hand edits and
-corruption; it is a consistency check, not a cryptographic signature.
+Every load re-validates the file: schema and version, required fields,
+validity, finite non-negative raw samples, and that the stored statistics
+follow from the stored raw samples. Failures are reported as corrupted,
+malformed, or internally inconsistent data.
+
+This is a consistency check, not authentication: an edit that keeps samples
+and statistics consistent is not detected, and a checksum stored in the same
+file would not change that.
 """
 
 import json
@@ -62,7 +67,7 @@ def require_usable_result(result: object, what: str) -> None:
     """
     problems = check_run_result(result)
     if problems:
-        raise ProbeError(exit_codes.BAD_FILE, f"{what} is not usable: " + "; ".join(problems))
+        raise ProbeError(exit_codes.BAD_FILE, f"{what} is malformed: " + "; ".join(problems))
     if not result["valid"]:
         raise ProbeError(
             exit_codes.INVALID_RESULT,
@@ -72,7 +77,10 @@ def require_usable_result(result: object, what: str) -> None:
     if "provenance" not in result:
         problems.append("no provenance (it was not produced by 'probe run')")
     if problems:
-        raise ProbeError(exit_codes.BAD_FILE, f"{what} is not usable: " + "; ".join(problems))
+        raise ProbeError(
+            exit_codes.BAD_FILE,
+            f"{what} is corrupted or internally inconsistent: " + "; ".join(problems),
+        )
 
 
 def save_baseline(store: Path, name: str, result: dict, overwrite: bool = False) -> Path:

@@ -171,7 +171,7 @@ def test_compare_threshold_boundary(workdir):
 # --- compare: refusals -----------------------------------------------------------------------
 
 
-def test_compare_missing_or_tampered_baseline(workdir):
+def test_compare_missing_or_inconsistent_baseline(workdir):
     assert compare(workdir, make_result()) == exit_codes.BAD_FILE
     save(workdir)
     path = workdir / ".probe" / "baselines" / "main.json"

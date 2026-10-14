@@ -163,7 +163,9 @@ Every run records raw per-iteration samples and adds provenance: the git commit 
 
 **Storage.** Baselines are plain JSON in `<store>/baselines/<name>.json`. The store is `--store`, else `$PROBE_STORE`, else `./.probe`. A baseline wraps the complete result document, including raw samples. It is not gitignored, so baselines can be committed for CI.
 
-Probe refuses to save an invalid run. Every load re-validates the file: its structure, that the run was valid, and that every stored statistic matches what is recomputed from the stored raw samples. Hand-edited or corrupted files are rejected. This is a consistency check, not a cryptographic signature.
+Probe refuses to save an invalid run. Every load re-validates the file: the schema and version, required fields, that the run was valid, that every raw sample is a finite non-negative number, and that every stored statistic matches what is recomputed from the stored raw samples. A file that fails is reported as corrupted, malformed, or internally inconsistent.
+
+This is a consistency check, not authentication. A deliberate edit that keeps samples and statistics consistent will not be noticed, and neither would a checksum stored in the same file. Detecting malicious modification would need a signature verified against a key kept outside the file, which Probe does not implement.
 
 **Compatibility.** Before comparing, Probe sorts every difference into one of three groups:
 
@@ -201,7 +203,7 @@ fewer than 10 samples on either side      -> INCONCLUSIVE
 | 3 | no usable CUDA device |
 | 4 | a run (or file) is an invalid run; never saved or compared |
 | 5 | runs are not comparable (fatal or un-overridden environment mismatch) |
-| 6 | baseline or result file missing, malformed, or inconsistent |
+| 6 | baseline or result file missing, corrupted, malformed, or internally inconsistent |
 | 7 | workload failed: binary missing, CUDA error, unusable output |
 | 8 | `--fail-on-inconclusive` given and the gated metric is INCONCLUSIVE |
 

@@ -11,7 +11,7 @@ USAGE = 2  # bad command line (also argparse's own code)
 NO_GPU = 3  # no usable CUDA device
 INVALID_RESULT = 4  # a run completed but failed validation; never baselined or compared
 INCOMPATIBLE = 5  # baseline and current run cannot be compared
-BAD_FILE = 6  # baseline or result file missing, malformed, or inconsistent
+BAD_FILE = 6  # baseline or result file missing, corrupted, malformed, or internally inconsistent
 WORKLOAD_FAILED = 7  # binary missing, CUDA error, or unusable output
 INCONCLUSIVE = 8  # compare --fail-on-inconclusive: the gated metric was inconclusive
 

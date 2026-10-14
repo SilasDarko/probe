@@ -1,4 +1,4 @@
-"""Tests for baseline storage and integrity checks (probe.baseline)."""
+"""Tests for baseline storage and consistency checks (probe.baseline)."""
 
 import json
 import math
@@ -27,7 +27,7 @@ def expect_error(code, fn, *args, **kwargs):
 
 
 def edit_saved(store, name, mutate):
-    """Simulate a hand edit or corruption of a saved baseline file."""
+    """Make a saved baseline file corrupted, malformed, or inconsistent."""
     path = store / "baselines" / f"{name}.json"
     doc = json.loads(path.read_text())
     mutate(doc)
@@ -123,7 +123,7 @@ def test_missing_baseline(tmp_path):
     assert "not found" in expect_error(exit_codes.BAD_FILE, load_baseline, tmp_path, "nope")
 
 
-# --- tampering and corruption ----------------------------------------------------------
+# --- corrupted, malformed, or inconsistent files ---------------------------------------
 
 
 @pytest.fixture
@@ -138,7 +138,23 @@ def test_detects_edited_aggregate(saved):
 
     edit_saved(saved, "main", edit)
     message = expect_error(exit_codes.BAD_FILE, load_baseline, saved, "main")
+    assert "corrupted or internally inconsistent" in message
     assert "kernel.p50" in message and "recomputed from raw samples" in message
+
+
+def test_consistent_edit_is_not_detected(saved):
+    """The documented limit: this is a consistency check, not authentication.
+    Changing the samples and recomputing the statistics to match produces a
+    file Probe cannot distinguish from a genuine one."""
+
+    def edit(doc):
+        result = doc["result"]
+        kernel = [t * 0.5 for t in result["samples"]["gpu"]["kernel"]]
+        result["samples"]["gpu"]["kernel"] = kernel
+        result["timing"]["gpu"]["phases"]["kernel"] = summarize(kernel)
+
+    edit_saved(saved, "main", edit)
+    assert load_baseline(saved, "main")["result"]["samples"]["gpu"]["kernel"][0] < 1.0
 
 
 def test_detects_edited_raw_sample(saved):

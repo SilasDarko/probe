@@ -1,4 +1,4 @@
-"""Structural and integrity checks for ``probe.run`` result documents.
+"""Structural and consistency checks for ``probe.run`` result documents.
 
 The schema is produced by probe_core (report.hpp); the Python CLI adds a
 ``provenance`` section and ``environment.host``. This module checks the
@@ -120,8 +120,8 @@ def _same(stored: Any, recomputed: float | int | None) -> bool:
 def check_raw_samples(doc: dict) -> list[str]:
     """Check that raw samples exist for every metric, have one entry per
     measured iteration, contain only finite non-negative numbers, and
-    reproduce the stored statistics. A mismatch means the file was edited or
-    corrupted after it was written."""
+    reproduce the stored statistics. A mismatch means the data is corrupted or
+    internally inconsistent; it does not say how it got that way."""
     if "samples" not in doc:
         return ["result has no raw samples (re-run with raw samples recorded)"]
     try:
