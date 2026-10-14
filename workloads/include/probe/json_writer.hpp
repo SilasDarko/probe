@@ -28,8 +28,8 @@ class JsonWriter {
     JsonWriter& integer(long long value);
     JsonWriter& uinteger(unsigned long long value);
     // Non-finite values (NaN, infinity) are not valid JSON and are written as
-    // null. Finite values use 9 significant digits, enough to round-trip any
-    // float exactly.
+    // null. Finite values use the shortest decimal that parses back to exactly
+    // the same double (std::to_chars), so nothing is lost on the way to Python.
     JsonWriter& number(double value);
     JsonWriter& boolean(bool value);
     JsonWriter& null();

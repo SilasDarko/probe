@@ -5,26 +5,40 @@
 
 namespace probe {
 
+bool within_tolerance(double expected, double actual, Tolerance tol) {
+    const double err = std::fabs(actual - expected);
+    const double limit = tol.atol + tol.rtol * std::fabs(expected);
+    return err <= limit;  // false for NaN; callers must not rewrite this as !(err > limit)
+}
+
+namespace {
+
+void record(ValidationResult& result, std::size_t index, double expected, double actual,
+            Tolerance tol) {
+    if (!within_tolerance(expected, actual, tol)) {
+        if (result.first_mismatch_index < 0) {
+            result.first_mismatch_index = static_cast<std::int64_t>(index);
+        }
+        ++result.mismatches;
+    }
+    const double err = std::fabs(actual - expected);
+    if (err > result.max_abs_error) result.max_abs_error = err;
+}
+
+}  // namespace
+
 ValidationResult validate_close(const float* expected, const float* actual, std::size_t n,
                                 Tolerance tol) {
     ValidationResult result;
     result.checked = n;
-    for (std::size_t i = 0; i < n; ++i) {
-        const double e = expected[i];
-        const double a = actual[i];
-        const double err = std::fabs(a - e);
-        const double limit = tol.atol + tol.rtol * std::fabs(e);
-        // Written as !(err <= limit) rather than (err > limit): every
-        // comparison with NaN is false, so this form flags NaN as a mismatch
-        // instead of silently accepting it.
-        if (!(err <= limit)) {
-            if (result.first_mismatch_index < 0) {
-                result.first_mismatch_index = static_cast<std::int64_t>(i);
-            }
-            ++result.mismatches;
-        }
-        if (err > result.max_abs_error) result.max_abs_error = err;
-    }
+    for (std::size_t i = 0; i < n; ++i) record(result, i, expected[i], actual[i], tol);
+    return result;
+}
+
+ValidationResult validate_scalar(double expected, double actual, Tolerance tol) {
+    ValidationResult result;
+    result.checked = 1;
+    record(result, 0, expected, actual, tol);
     return result;
 }
 

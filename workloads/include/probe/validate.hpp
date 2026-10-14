@@ -6,7 +6,7 @@
 
 namespace probe {
 
-// Element i is correct when |actual - expected| <= atol + rtol * |expected|.
+// A value is correct when |actual - expected| <= atol + rtol * |expected|.
 // rtol scales with the magnitude of the expected value; atol covers values
 // near zero, where a relative bound alone would be too strict.
 struct Tolerance {
@@ -14,7 +14,12 @@ struct Tolerance {
     double atol = 0.0;
 };
 
-// Result of checking one output array against its reference.
+// The single comparison rule used everywhere. NaN in either value is always
+// a mismatch: it is written as !(err <= limit), and every comparison with NaN
+// is false.
+bool within_tolerance(double expected, double actual, Tolerance tol);
+
+// Result of checking one output (an array or a single value).
 struct ValidationResult {
     std::size_t checked = 0;
     std::size_t mismatches = 0;
@@ -24,9 +29,11 @@ struct ValidationResult {
     bool passed() const { return checked > 0 && mismatches == 0; }
 };
 
-// NaN in either array always counts as a mismatch.
 ValidationResult validate_close(const float* expected, const float* actual, std::size_t n,
                                 Tolerance tol);
+
+// One scalar result, e.g. the output of a reduction.
+ValidationResult validate_scalar(double expected, double actual, Tolerance tol);
 
 // Aggregate over every measured iteration. A run is valid only if at least
 // one iteration was checked and none failed: correctness has to be shown,

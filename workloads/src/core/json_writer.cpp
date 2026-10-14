@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Silas Offei Darko. MIT License.
 #include "probe/json_writer.hpp"
 
+#include <charconv>
 #include <cmath>
 #include <cstdio>
 
@@ -104,9 +105,11 @@ JsonWriter& JsonWriter::number(double value) {
         out_ += "null";
         return *this;
     }
+    // Shortest round-trip form, e.g. "1.5", "0.1", "1e-07". Every output of
+    // to_chars for a finite double is also a valid JSON number.
     char buf[32];
-    std::snprintf(buf, sizeof buf, "%.9g", value);
-    out_ += buf;
+    const auto [end, ec] = std::to_chars(buf, buf + sizeof buf, value);
+    out_.append(buf, end);
     return *this;
 }
 

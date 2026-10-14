@@ -13,7 +13,8 @@ import pytest
 from probe.hardware import nvidia_gpu_available
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_BINARY = REPO_ROOT / "build" / "workloads" / "probe-workloads"
+BUILD_DIR = Path(os.environ.get("PROBE_BUILD_DIR", REPO_ROOT / "build"))
+DEFAULT_BINARY = BUILD_DIR / "workloads" / "probe-workloads"
 
 
 def pytest_collection_modifyitems(config, items):
@@ -32,4 +33,13 @@ def workloads_binary() -> Path:
     path = Path(override) if override else DEFAULT_BINARY
     if not path.is_file():
         pytest.skip(f"probe-workloads not built at {path}")
+    return path
+
+
+@pytest.fixture
+def example_report_binary() -> Path:
+    """CPU-only helper that prints a result JSON from synthetic data."""
+    path = BUILD_DIR / "workloads" / "probe_example_report"
+    if not path.is_file():
+        pytest.skip(f"probe_example_report not built at {path}")
     return path

@@ -4,8 +4,8 @@ A GPU performance regression and diagnostics toolkit for CUDA workloads.
 
 Author: Silas Offei Darko
 
-> Status: early development. The build system and the first workload
-> (`vector_add`) are in place. The CUDA code compiles, but no GPU code path has
+> Status: early development. The build system, the shared benchmark harness and
+> two workloads (`vector_add`, `reduction`) are in place. The CUDA code compiles, but no GPU code path has
 > yet been executed on NVIDIA hardware; see [BENCHMARKS.md](BENCHMARKS.md).
 
 ## Build
@@ -15,8 +15,9 @@ cmake -S . -B build
 cmake --build build -j
 ```
 
-This always builds `probe_core` (plain C++: argument parsing, CPU reference
-implementations, result validation, JSON output) and its unit tests. The CUDA
+This always builds `probe_core` (plain C++: argument parsing, input generation,
+CPU reference implementations, validation, statistics, the result schema) and
+its unit tests. The CUDA
 executable `probe-workloads` is built only when a CUDA compiler is found. On a
 GPU host, make a missing toolkit an error:
 
@@ -68,23 +69,73 @@ cuobjdump --list-elf --list-ptx build/workloads/probe-workloads
 ## Workloads
 
 ```sh
-probe-workloads vector_add [--n N] [--block-size B] [--warmup W] [--iters I] [--seed S] [--json]
+probe-workloads vector_add [--n N] [--block-size B] [common options]
+probe-workloads reduction  [--n N] [--block-size B] [common options]
 probe-workloads --device-info
 ```
 
-The defaults for `vector_add` are N = 16,777,216, B = 256, W = 3, I = 20 and S = 42.
+Common options: `--warmup W` (default 3), `--iters I` (default 20), `--seed S`
+(default 42), `--json`, `--raw-samples`. Both workloads default to
+N = 16,777,216 and B = 256.
 
-Each measured iteration copies the inputs host-to-device, runs the kernel, and copies the result back. CUDA events time each phase separately. Every measured iteration's output is compared against a CPU reference. If any iteration is wrong, the run is marked `"valid": false` and the binary exits with code 4.
+- **vector_add** computes `c[i] = a[i] + b[i]`, one thread per element. B must be a multiple of 32.
+- **reduction** sums N floats. Each block loads one element per thread into shared memory and sums them as a tree. The kernel is relaunched on the per-block partial sums until one value remains. B must be a power of two. This is a deliberately unoptimized baseline.
 
-The exit codes form the interface the Python CLI relies on:
+### How an iteration is measured
+
+Both workloads go through one shared harness (`harness.hpp`). A workload supplies three things: an untimed `reset`, a list of named timed phases, and a `validate` function. The harness owns everything else. Each iteration runs as follows:
+
+```
+reset()                      untimed: clear output buffers
+cudaDeviceSynchronize()      untimed: nothing from reset or the previous
+                             iteration is still running
+host clock start
+  event, h2d, event, kernel, event, d2h, event
+  cudaEventSynchronize(last event)
+host clock stop
+validate()                   untimed: compare against the CPU reference
+```
+
+Each run reports two kinds of time, kept separate in the JSON:
+
+- **`timing.gpu`** comes from CUDA events. It measures GPU execution between points in the stream: each phase, plus `total` from the first event to the last.
+- **`timing.host.end_to_end`** comes from `std::chrono::steady_clock` around the whole timed region. It includes everything the GPU interval does, plus launch and driver overhead and the time for the host to wake up after the final synchronization. It is normally a little larger than `timing.gpu.total`.
+
+Warmup iterations run the same sequence but are neither recorded nor validated.
+
+### Correctness
+
+Every measured iteration is validated against a CPU reference after its clocks have stopped. A run is valid only if at least one iteration was checked and none failed.
+
+**vector_add uses exact equality.** This holds for this controlled input domain only; it is not a general CPU/GPU guarantee. Inputs come from `fill_unit_magnitude`. They are normal floats with magnitude in [0.5, 1), built directly from `std::mt19937` bits, so they are the same on every platform. A single IEEE 754 addition is correctly rounded on both CPU and GPU. With these inputs, every sum is either zero or at least 2^-24, so no subnormal values arise.
+
+**reduction uses an error bound.** Floating-point addition is not associative. The GPU's tree order and the CPU's sequential order round differently, so the two results legitimately differ. The GPU result is compared against a double-precision reference using a worst-case bound for float32 tree summation, `gamma_d * sum|x|`. Here `d = passes * log2(B)` and `gamma_d = d*u/(1 - d*u)` with `u = 2^-24`; a small term is added for the reference itself.
+
+The bound is safe but loose. Below roughly n = 450,000 it is smaller than any single element, so even one missing element is detected. Above that size, a single lost element can hide inside the rounding budget. The JSON reports the bound (`validation.atol`) so every result states its own sensitivity.
+
+### Result JSON (`schema: probe.run`, `schema_version: 2`)
+
+The top-level keys are `workload`, `valid`, `invalid_reasons`, `parameters`, `config`, `build`, `environment`, `validation`, `timing`, and, with `--raw-samples` only, `samples`.
+
+Each timing series is summarized as `count`, `min`, `max`, `mean`, `p50`, `p95` and `stddev`, defined as follows:
+
+- **Percentiles** use linear interpolation between closest ranks. This is NumPy's `method="linear"`.
+- **`stddev`** is the sample standard deviation (n - 1). It is `null` for a single sample.
+- **Rejected input:** a series containing NaN, infinite or negative durations is not summarized, and the run becomes invalid.
+
+The C++ and Python implementations are both tested against `tests/fixtures/stats_golden.txt`.
+
+### Exit codes
+
+The Python CLI relies on these:
 
 | Code | Meaning |
 |---|---|
-| 0 | success |
+| 0 | success, valid result |
 | 1 | CUDA runtime error |
 | 2 | usage error |
 | 3 | no usable CUDA device |
-| 4 | output failed validation |
+| 4 | completed, but the result is invalid (JSON still printed, with reasons) |
 
 ## Test
 

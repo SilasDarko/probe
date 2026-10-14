@@ -21,7 +21,15 @@ void print_usage(const char* prog) {
         "       %s --device-info | --version | --help\n"
         "\n"
         "workloads:\n"
-        "  vector_add  [--n N] [--block-size B] [--warmup W] [--iters I] [--seed S] [--json]\n"
+        "  vector_add  [--n N] [--block-size B]   (B: multiple of 32, 32..1024)\n"
+        "  reduction   [--n N] [--block-size B]   (B: power of two, 32..1024)\n"
+        "\n"
+        "options for every workload:\n"
+        "  --warmup W      unrecorded iterations before measuring (default 3)\n"
+        "  --iters I       measured iterations (default 20)\n"
+        "  --seed S        input generator seed (default 42)\n"
+        "  --json          print the result as JSON instead of a summary\n"
+        "  --raw-samples   include every per-iteration sample in the JSON\n"
         "\n"
         "  --device-info  print the selected GPU's properties as JSON\n"
         "  --version      print the version, build type and CUDA architectures\n",
@@ -64,6 +72,7 @@ int main(int argc, char** argv) {
     }
     if (command == "--device-info") return print_device_info();
     if (command == "vector_add") return probe::run_vector_add(rest);
+    if (command == "reduction") return probe::run_reduction(rest);
 
     std::fprintf(stderr, "probe-workloads: unknown command '%s'\n", command.c_str());
     print_usage(argv[0]);

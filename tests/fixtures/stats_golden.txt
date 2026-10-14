@@ -1,0 +1,15 @@
+# Statistics golden cases shared by the C++ tests (probe_core) and the Python
+# tests (probe.stats). Both implementations must reproduce these values.
+#
+# Expected values were computed once with NumPy:
+#   percentiles: numpy.percentile(x, p, method="linear")
+#   stddev:      numpy.std(x, ddof=1); undefined (nan) for a single sample
+#
+# Format: samples | count min max mean p50 p95 stddev
+5.0 | 1 5.0 5.0 5.0 5.0 5.0 nan
+1.0 2.0 3.0 4.0 | 4 1.0 4.0 2.5 2.5 3.8499999999999996 1.2909944487358056
+4.0 1.0 3.0 2.0 | 4 1.0 4.0 2.5 2.5 3.8499999999999996 1.2909944487358056
+2.0 2.0 2.0 | 3 2.0 2.0 2.0 2.0 2.0 0.0
+0.5 0.25 1.75 2.0 0.125 3.5 1.0 | 7 0.125 3.5 1.3035714285714286 1.0 3.049999999999999 1.2073066245632407
+0.0 10.0 | 2 0.0 10.0 5.0 5.0 9.5 7.0710678118654755
+1.84 1.91 1.86 1.85 2.4 1.84 1.87 1.85 1.86 1.84 1.88 1.85 1.83 1.9 1.86 1.85 1.84 1.87 1.86 3.1 | 20 1.83 3.1 1.948 1.86 2.4350000000000005 0.29752664630778514

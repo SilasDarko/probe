@@ -9,5 +9,6 @@ namespace probe {
 // Each workload takes the arguments that follow its name and returns an exit
 // code from probe/exit_codes.hpp.
 int run_vector_add(const std::vector<std::string>& args);
+int run_reduction(const std::vector<std::string>& args);
 
 }  // namespace probe

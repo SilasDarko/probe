@@ -6,15 +6,6 @@
 
 namespace probe {
 
-namespace {
-
-// CUDA encodes versions as 1000 * major + 10 * minor (12020 -> "12.2").
-std::string format_cuda_version(int v) {
-    return std::to_string(v / 1000) + "." + std::to_string((v % 1000) / 10);
-}
-
-}  // namespace
-
 bool select_device(int index, DeviceInfo& out, std::string& error) {
     PROBE_CUDA_CHECK(cudaRuntimeGetVersion(&out.runtime_version));
     PROBE_CUDA_CHECK(cudaDriverGetVersion(&out.driver_version));
@@ -39,27 +30,6 @@ bool select_device(int index, DeviceInfo& out, std::string& error) {
     out.sm_count = prop.multiProcessorCount;
     out.global_mem_bytes = prop.totalGlobalMem;
     return true;
-}
-
-void write_device_json(JsonWriter& w, const DeviceInfo& info) {
-    w.begin_object()
-        .key("index")
-        .integer(info.index)
-        .key("count")
-        .integer(info.count)
-        .key("name")
-        .string(info.name)
-        .key("compute_capability")
-        .string(std::to_string(info.cc_major) + "." + std::to_string(info.cc_minor))
-        .key("sm_count")
-        .integer(info.sm_count)
-        .key("global_mem_bytes")
-        .uinteger(info.global_mem_bytes)
-        .key("cuda_runtime_version")
-        .string(format_cuda_version(info.runtime_version))
-        .key("cuda_driver_version")
-        .string(format_cuda_version(info.driver_version))
-        .end_object();
 }
 
 }  // namespace probe
