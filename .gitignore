@@ -1,0 +1,17 @@
+# Build output
+build/
+compile_commands.json
+
+# Python
+__pycache__/
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Benchmark runs and profiler captures are machine-specific.
+# Baselines under .probe/ are deliberately NOT ignored so they can be committed.
+results/
+*.nsys-rep
+*.ncu-rep
+*.sqlite
