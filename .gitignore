@@ -15,3 +15,6 @@ results/
 *.nsys-rep
 *.ncu-rep
 *.sqlite
+
+# Raw hardware-validation runs (summaries are committed separately).
+validation-runs/

@@ -7,7 +7,8 @@ Author: Silas Offei Darko
 > Status: early development. The benchmark harness, two workloads (`vector_add`,
 > `reduction`), and the baseline and regression-comparison CLI are in place.
 > The CUDA code compiles, but no GPU code path has yet been executed on NVIDIA
-> hardware; see [BENCHMARKS.md](BENCHMARKS.md).
+> hardware; see [BENCHMARKS.md](BENCHMARKS.md). The procedure that will validate
+> it is in [docs/gpu-validation.md](docs/gpu-validation.md).
 
 ## Build
 
