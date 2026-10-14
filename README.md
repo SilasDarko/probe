@@ -4,13 +4,14 @@ A C++/CUDA toolkit for correctness-gated GPU benchmarking, reproducible
 baselines, and noise-aware performance regression analysis.
 
 
-> **Status:** Core implementation is complete and hardware validation is in
-> progress. Probe currently includes `vector_add` and `reduction` CUDA workloads,
-> CUDA-event and host timing, CPU-reference correctness checks, reproducible
-> baselines, and noise-aware regression comparison. The CUDA code has been
-> compiled across supported architectures; real NVIDIA GPU validation is the
-> remaining validation stage. See [BENCHMARKS.md](BENCHMARKS.md) and
-> [docs/gpu-validation.md](docs/gpu-validation.md).
+> **Status:** Stage 5 hardware validation is complete on an NVIDIA Tesla T4.
+> Probe includes `vector_add` and `reduction` CUDA workloads, CUDA-event and
+> host timing, CPU-reference correctness checks, reproducible baselines, and
+> noise-aware regression comparison. The full hardware validation completed
+> 142/142 steps successfully, including 52 compute-sanitizer runs. See
+> [BENCHMARKS.md](BENCHMARKS.md) and
+> [docs/gpu-validation.md](docs/gpu-validation.md) for measured results and
+> validation methodology.
 
 
 ## Highlights
