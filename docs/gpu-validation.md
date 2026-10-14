@@ -40,28 +40,19 @@ One known difference is reported as a GAP rather than hidden. Probe records the 
 
 ## On Google Colab
 
-1. **Runtime → Change runtime type → GPU (T4 is enough).**
-2. Upload `probe.bundle` (a git bundle of the repository) and run:
+Use `Probe_GPU_Validation.ipynb` at the repository root; the minimal steps are in [COLAB_VALIDATION.md](../COLAB_VALIDATION.md). The notebook runs the following stages:
 
-```python
-!nvidia-smi
-from google.colab import files
-files.upload()                       # choose probe.bundle
-!git clone probe.bundle probe
-%cd probe
-!cmake --version                     # needs 3.25+; if older: !pip install -U cmake
-!python3 scripts/validate_gpu.py --quick
-```
+1. Checks for a GPU, and stops at once if there is none.
+2. Records the toolchain, including whether compute-sanitizer, Nsight Systems and Nsight Compute are available.
+3. Clones `probe.bundle`.
+4. Installs only what `pyproject.toml` and `CMakeLists.txt` require. It never installs a driver or CUDA.
+5. Builds cleanly, then runs ctest and pytest.
+6. Compares `--device-info` with `nvidia-smi`.
+7. Runs `validate_gpu.py --quick`, and stops if that finds a problem.
+8. Runs the full `validate_gpu.py` and `analyze_validation.py`.
+9. Packs one `probe-stage5-colab-<gpu>-<timestamp>.tar.gz`.
 
-3. If the quick run completes, start the full run:
-
-```python
-!python3 scripts/validate_gpu.py
-!python3 scripts/analyze_validation.py $(ls -d validation-runs/*/ | tail -1)
-files.download(sorted(__import__("glob").glob("validation-runs/*.tar.gz"))[-1])
-```
-
-The `.tar.gz` contains every raw output. That file, not a summary of it, is what the results in BENCHMARKS.md must be derived from.
+It prints "STAGE 5 HARDWARE VALIDATION FINISHED" only if both workloads produced valid results on the GPU.
 
 ## On a cloud VM
 
