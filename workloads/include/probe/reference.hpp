@@ -33,11 +33,15 @@ void vector_add_reference(const float* a, const float* b, float* out, std::size_
 
 struct ReductionReference {
     double sum = 0.0;      // sum of x[i], accumulated in double
-    double abs_sum = 0.0;  // sum of |x[i]|, used to size the tolerance
+    double abs_sum = 0.0;  // sum of |x[i]|, accumulated in double; sizes the tolerance
 };
 
-// CPU reference for a float32 sum, accumulated sequentially in double so it is
-// far more accurate than the float32 result it checks.
+// CPU reference for the reduction. Every float32 input converts to double
+// exactly; the sum is then accumulated sequentially in double (53-bit
+// significand vs float32's 24), so its own rounding error is about 2^29 times
+// smaller per operation than the GPU's. The GPU result is compared against
+// this higher-precision value, not against another float32 sum.
+// See docs/correctness.md for the full argument.
 ReductionReference reduction_reference(const float* x, std::size_t n);
 
 // Grid sizes of each pass of the multi-pass GPU reduction. Each pass turns
@@ -47,16 +51,20 @@ ReductionReference reduction_reference(const float* x, std::size_t n);
 //   n = 1,000,003  -> {3907, 16, 1}
 std::vector<std::uint64_t> reduction_pass_sizes(std::uint64_t n, std::uint64_t block_size);
 
-// Absolute error bound for the float32 GPU result against the double
-// reference (returned as a Tolerance with rtol = 0).
+// Absolute error bound for |gpu_result - reference.sum| (returned as a
+// Tolerance with rtol = 0). With s the exact sum, gamma(k, u) = k*u / (1 - k*u):
 //
-// Every element reaches the final sum through at most d additions, where
-// d = passes * log2(block_size). A standard floating-point result bounds the
-// rounding error of such a summation tree by
-//   gamma_d * sum|x|,   gamma_d = d*u / (1 - d*u),   u = 2^-24 (float32).
-// The double reference contributes at most (n - 1) * 2^-53 * sum|x| more.
-// This is a worst-case bound, not an estimate: typical errors are much
-// smaller, and any error above it is a bug, not rounding.
+//   |gpu - s| <= gamma(d, 2^-24)   * sum|x|   GPU float32 tree, depth d
+//   |ref - s| <= gamma(n-1, 2^-53) * sum|x|   sequential double reference
+//
+// so by the triangle inequality
+//   |gpu - ref| <= (gamma(d, 2^-24) + gamma(n-1, 2^-53)) * sum|x|.
+//
+// d = passes * log2(block_size) bounds how many additions any one element
+// passes through. sum|x| is itself computed in double and may be low by a
+// relative gamma(n-1, 2^-53), so the result is scaled up by that factor.
+// This is a worst-case bound, not an estimate: any error above it is a bug.
+// Assumptions and limits are documented in docs/correctness.md.
 Tolerance reduction_tolerance(std::uint64_t n, std::uint64_t block_size, double abs_sum);
 
 }  // namespace probe

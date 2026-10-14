@@ -99,7 +99,9 @@ validate()                   untimed: compare against the CPU reference
 Each run reports two kinds of time, kept separate in the JSON:
 
 - **`timing.gpu`** comes from CUDA events. It measures GPU execution between points in the stream: each phase, plus `total` from the first event to the last.
-- **`timing.host.end_to_end`** comes from `std::chrono::steady_clock` around the whole timed region. It includes everything the GPU interval does, plus launch and driver overhead and the time for the host to wake up after the final synchronization. It is normally a little larger than `timing.gpu.total`.
+- **`timing.host.end_to_end`** comes from `std::chrono::steady_clock` around the whole timed region. It includes the time the host spends issuing work, driver overhead, any blocking copies, and the time for the host to wake up after the final synchronization.
+
+The two clocks start at slightly different moments and measure different things. In the current synchronous workloads, host time is expected to be somewhat larger than GPU time, but that is an expectation, not a checked invariant. It has not been measured on hardware yet. Asynchronous copies, pinned memory and multiple streams will make the relationship more complicated.
 
 Warmup iterations run the same sequence but are neither recorded nor validated.
 
@@ -111,7 +113,7 @@ Every measured iteration is validated against a CPU reference after its clocks h
 
 **reduction uses an error bound.** Floating-point addition is not associative. The GPU's tree order and the CPU's sequential order round differently, so the two results legitimately differ. The GPU result is compared against a double-precision reference using a worst-case bound for float32 tree summation, `gamma_d * sum|x|`. Here `d = passes * log2(B)` and `gamma_d = d*u/(1 - d*u)` with `u = 2^-24`; a small term is added for the reference itself.
 
-The bound is safe but loose. Below roughly n = 450,000 it is smaller than any single element, so even one missing element is detected. Above that size, a single lost element can hide inside the rounding budget. The JSON reports the bound (`validation.atol`) so every result states its own sensitivity.
+The bound is safe but loose. Below roughly n = 450,000 it is smaller than any single element, so even one missing element is detected. Above that size, a single lost element can hide inside the rounding budget. The JSON reports the bound (`validation.atol`) so every result states its own sensitivity. The full derivation, its assumptions and its blind spots are in [docs/correctness.md](docs/correctness.md).
 
 ### Result JSON (`schema: probe.run`, `schema_version: 2`)
 

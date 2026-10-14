@@ -44,15 +44,26 @@ std::vector<std::uint64_t> reduction_pass_sizes(std::uint64_t n, std::uint64_t b
     return grids;
 }
 
+namespace {
+
+// gamma_k = k*u / (1 - k*u): the standard bound on the relative error
+// accumulated by k successive roundings with unit roundoff u (valid for k*u < 1).
+double gamma(double k, double u) { return k * u / (1.0 - k * u); }
+
+}  // namespace
+
 Tolerance reduction_tolerance(std::uint64_t n, std::uint64_t block_size, double abs_sum) {
     const double u_float = std::ldexp(1.0, -24);
     const double u_double = std::ldexp(1.0, -53);
     const double levels_per_pass = std::log2(static_cast<double>(block_size));
     const double depth =
         static_cast<double>(reduction_pass_sizes(n, block_size).size()) * levels_per_pass;
-    const double gamma = depth * u_float / (1.0 - depth * u_float);
-    const double reference_error = static_cast<double>(n > 0 ? n - 1 : 0) * u_double;
-    return Tolerance{0.0, (gamma + reference_error) * abs_sum};
+    const double reference_adds = static_cast<double>(n > 0 ? n - 1 : 0);
+
+    const double gpu_term = gamma(depth, u_float);
+    const double reference_term = gamma(reference_adds, u_double);
+    const double abs_sum_upper = abs_sum * (1.0 + reference_term);
+    return Tolerance{0.0, (gpu_term + reference_term) * abs_sum_upper};
 }
 
 }  // namespace probe

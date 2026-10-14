@@ -214,13 +214,19 @@ void test_reduction_tolerance_formula() {
     // n = 1: no additions, so the only error budget is zero.
     CHECK(probe::reduction_tolerance(1, 256, 0.75).atol == 0.0);
 
-    // n = 1000003, block 256: 3 passes * 8 levels = 24 additions deep.
+    // n = 1000003, block 256: 3 passes * 8 levels = 24 additions deep (GPU,
+    // float32); the sequential double reference performs 1000002 additions.
     const double abs_sum = 750000.0;
-    const double d = 24.0, u = 0x1p-24;
-    const double expected = (d * u / (1.0 - d * u) + 1000002.0 * 0x1p-53) * abs_sum;
+    const double d = 24.0, uf = 0x1p-24;
+    const double k = 1000002.0, ud = 0x1p-53;
+    const double gpu = d * uf / (1.0 - d * uf);
+    const double ref = k * ud / (1.0 - k * ud);
+    const double expected = (gpu + ref) * abs_sum * (1.0 + ref);
     const Tolerance t = probe::reduction_tolerance(1000003, 256, abs_sum);
     CHECK(t.rtol == 0.0);
     CHECK(std::fabs(t.atol - expected) <= 1e-12 * expected);
+    // The GPU term dominates: about 1.4e-6 vs 1.1e-10, four orders of magnitude.
+    CHECK(gpu / ref > 1e4 && gpu / ref < 1e5);
 }
 
 // A CPU model of the GPU kernel: the same tree, in the same order, in float32.
